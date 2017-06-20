@@ -14,7 +14,6 @@ namespace RemoteClient.Roslyn
 {
     public class RemoteClientGenerator : ICodeGenerator
 	{
-		private const string DictionaryName = "System.Collections.Generic.Dictionary<string, object>";
 		private const string QueryStringParamters = "queryStringParamters";
 		private const string ProcessorName = "processor";
 
@@ -31,8 +30,7 @@ namespace RemoteClient.Roslyn
 		{
 			var applyToInterface = (InterfaceDeclarationSyntax) applyTo;
 
-
-			var clientIdentifier = Identifier(applyToInterface.Identifier.ValueText + "Client");
+			var clientIdentifier = Identifier(TrimInterfaceFirstLetter(applyToInterface.Identifier.ValueText) + "Client");
 
 			var processorField = FieldDeclaration(VariableDeclaration(ParseTypeName(nameof(IRemoteRequestProcessor)))
 					.AddVariables(VariableDeclarator(ProcessorName)))
@@ -85,12 +83,19 @@ namespace RemoteClient.Roslyn
 				clientClass = clientClass.AddBaseListTypes(SimpleBaseType(ParseTypeName(applyToInterface.Identifier.ValueText)));
 			}
 
-			return Task.FromResult(List<MemberDeclarationSyntax>().Add(clientClass));
+			var clientsNamespace = NamespaceDeclaration(ParseName("Clients"))
+				.AddUsings(
+					GetUsingDirectiveSyntax("System"),
+					GetUsingDirectiveSyntax("System.Collections.Generic"),
+					GetUsingDirectiveSyntax("System.Threading.Tasks"))
+				.AddMembers(clientClass);
+
+			return Task.FromResult(List<MemberDeclarationSyntax>().Add(clientsNamespace));
 		}
 
 		private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod)
 		{
-			var dictionaryName = ParseTypeName(DictionaryName);
+			var dictionaryName = ParseTypeName("Dictionary<string, object>");
 			var queryStringVariable = VariableDeclarator(QueryStringParamters);
 			var queryStringDict = LocalDeclarationStatement(VariableDeclaration(dictionaryName)
 				.AddVariables(queryStringVariable.WithInitializer(EqualsValueClause(InvocationExpression(ObjectCreationExpression(dictionaryName))))));
@@ -164,14 +169,10 @@ namespace RemoteClient.Roslyn
 				.AddVariables(variableDeclaratorSyntax2.WithInitializer(requestCtor)));
 
 			yield return localDeclarationStatement2;
-
-			var typedArguments = TypeArgumentList(SeparatedList(new TypeSyntax[]
-			{
-				IdentifierName(Identifier("string"))
-			}));
-
+			
+			var withTypeArgumentList = GetCallingMethod(interfaceMethodReturnType);
 			var returnExpression = ReturnStatement(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-				IdentifierName(ProcessorName), GenericName(nameof(IRemoteRequestProcessor.GetResultAsync)).WithTypeArgumentList(typedArguments)),
+				IdentifierName(ProcessorName), withTypeArgumentList),
 				ArgumentList(SeparatedList(
 					new[]
 					{
@@ -181,5 +182,23 @@ namespace RemoteClient.Roslyn
 
 			yield return returnExpression;
 		}
+
+		private static SimpleNameSyntax GetCallingMethod(TypeSyntax interfaceMethodReturnType)
+		{
+			switch (interfaceMethodReturnType)
+			{
+				case GenericNameSyntax genericName:
+					return GenericName(nameof(IRemoteRequestProcessor.GetResultAsync)).WithTypeArgumentList(genericName.TypeArgumentList);
+				case IdentifierNameSyntax _:
+					return IdentifierName(nameof(IRemoteRequestProcessor.ExecuteAsync));
+				default:
+					throw new InvalidOperationException("Never throws");
+			}
+		}
+
+		private static UsingDirectiveSyntax GetUsingDirectiveSyntax(string namespaceName) => UsingDirective(
+			ParseName(namespaceName)).NormalizeWhitespace();
+
+		private static string TrimInterfaceFirstLetter(string interfaceName) => interfaceName[0] == 'I' ? interfaceName.Substring(1) : interfaceName;
 	}
 }
