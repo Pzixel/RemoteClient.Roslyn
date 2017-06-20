@@ -4,7 +4,7 @@ namespace RemoteClient.Roslyn
 {
     public interface IRemoteRequest
     {
-        RemoteOperationDescriptor Descriptor { get; }
+        IRemoteOperationDescriptor Descriptor { get; }
         IReadOnlyDictionary<string, object> QueryStringParameters { get; }
         IReadOnlyDictionary<string, object> BodyParameters { get; }
     }

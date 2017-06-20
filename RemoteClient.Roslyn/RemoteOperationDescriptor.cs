@@ -1,7 +1,7 @@
 ﻿namespace RemoteClient.Roslyn
 {
-    public struct RemoteOperationDescriptor
-    {
+    public class RemoteOperationDescriptor : IRemoteOperationDescriptor
+	{
         public string UriTemplate { get; }
         public string Method { get; }
         public OperationWebMessageFormat RequestFormat { get; }

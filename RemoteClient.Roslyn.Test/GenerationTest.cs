@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace RemoteClient.Roslyn.Test
@@ -12,9 +13,18 @@ namespace RemoteClient.Roslyn.Test
         }
     }
 
-	[RemoteClient]
+	[RemoteClient(true)]
 	public interface IFoo
 	{
-		
+		Task<string> GetStringAsync(string value);
 	}
-;}
+
+
+
+	[RemoteClient]
+	public interface IBar
+	{
+
+	}
+;
+}
