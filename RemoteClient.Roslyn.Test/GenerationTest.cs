@@ -8,15 +8,13 @@ namespace RemoteClient.Roslyn.Test
         [Fact]
         public void Test1()
         {
-			var foo = new Foo();
-	        var fooa = new FooA();
-			Assert.Equal("100", fooa.Value);
+			var fooCLient = new IFooClient(null);
         }
     }
 
-	[DuplicateWithSuffix("A")]
-	public class Foo
+	[RemoteClient]
+	public interface IFoo
 	{
-		public string Value { get; } = "100";
+		
 	}
 ;}
