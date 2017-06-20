@@ -22,34 +22,40 @@ namespace RemoteClient.Roslyn
 		{
 			var applyToInterface = (InterfaceDeclarationSyntax) applyTo;
 
-			var disposeMethod = MethodDeclaration(ParseTypeName("void"), nameof(IDisposable.Dispose))
-				.AddModifiers(Token(SyntaxKind.PublicKeyword))
-				.WithBody(Block());
 
 			var clientIdentifier = Identifier(applyToInterface.Identifier.ValueText + "Client");
 
-			const string ctorParameterName = "processor";
-			var proxyCtor = ConstructorDeclaration(clientIdentifier)
+			const string processorName = "processor";
+			var processorField = FieldDeclaration(VariableDeclaration(ParseTypeName(nameof(IAsyncRequestProcessor)))
+					.AddVariables(VariableDeclarator(processorName)))
+				.AddModifiers(Token(SyntaxKind.PrivateKeyword), Token(SyntaxKind.ReadOnlyKeyword));
+
+			var processorFieldExpression = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ThisExpression(), IdentifierName(processorName));
+
+			var processorCtorParameter = Parameter(
+				List<AttributeListSyntax>(),
+				TokenList(),
+				ParseTypeName(nameof(IAsyncRequestProcessor)),
+				Identifier(processorName),
+				null);
+
+			var ctor = ConstructorDeclaration(clientIdentifier)
 				.AddModifiers(Token(SyntaxKind.PublicKeyword))
-				.AddParameterListParameters(Parameter(
-					List<AttributeListSyntax>(),
-					TokenList(),
-					ParseTypeName(nameof(IAsyncRequestProcessor)),
-					Identifier(ctorParameterName),
-					null))
-				.WithInitializer(ConstructorInitializer(SyntaxKind.BaseConstructorInitializer)
-					// could be BaseConstructorInitializer or ThisConstructorInitializer
-					.AddArgumentListArguments(
-						Argument(IdentifierName(ctorParameterName))
-					))
-				.WithBody(Block());
+				.AddParameterListParameters(processorCtorParameter)
+				.WithBody(Block(ExpressionStatement(AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, processorFieldExpression, IdentifierName(processorName)))));
+
+
+			var memberAccessExpressionSyntax = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, processorFieldExpression, IdentifierName(nameof(IDisposable.Dispose)));
+			var invocationExpressionSyntax = InvocationExpression(memberAccessExpressionSyntax);
+			var disposeMethod = MethodDeclaration(ParseTypeName("void"), nameof(IDisposable.Dispose))
+				.AddModifiers(Token(SyntaxKind.PublicKeyword))
+				.WithBody(Block(ExpressionStatement(invocationExpressionSyntax)));
 
 			var clientClass = ClassDeclaration(clientIdentifier)
-				.WithModifiers(SyntaxTokenList.Create(Token(SyntaxKind.PublicKeyword)))
-				.AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(AsyncClientBase))),
-					SimpleBaseType(ParseTypeName(applyToInterface.Identifier.ValueText)),
+				.AddModifiers(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.SealedKeyword))
+				.AddBaseListTypes(SimpleBaseType(ParseTypeName(applyToInterface.Identifier.ValueText)),
 					SimpleBaseType(ParseTypeName(nameof(IDisposable))))
-				.AddMembers(proxyCtor, disposeMethod);
+				.AddMembers(processorField, ctor, disposeMethod);
 
 			return Task.FromResult(List<MemberDeclarationSyntax>().Add(clientClass));
 		}
