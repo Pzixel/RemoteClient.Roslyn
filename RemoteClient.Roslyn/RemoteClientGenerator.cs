@@ -25,10 +25,9 @@ namespace RemoteClient.Roslyn
 			_inheritInterface = (bool) attributeData.ConstructorArguments[0].Value;
 		}
 
-		public Task<SyntaxList<MemberDeclarationSyntax>> GenerateAsync(MemberDeclarationSyntax applyTo, CSharpCompilation compilation, IProgress<Diagnostic> progress,
-			CancellationToken cancellationToken)
+		public Task<SyntaxList<MemberDeclarationSyntax>> GenerateAsync(TransformationContext context, IProgress<Diagnostic> progress, CancellationToken cancellationToken)
 		{
-			var applyToInterface = (InterfaceDeclarationSyntax) applyTo;
+		    var applyToInterface = (InterfaceDeclarationSyntax) context.ProcessingMember;
 
 			var clientIdentifier = Identifier(TrimInterfaceFirstLetter(applyToInterface.Identifier.ValueText) + "Client");
 
@@ -95,6 +94,8 @@ namespace RemoteClient.Roslyn
 
 		private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod)
 		{
+			var attribute = interfaceMethod.AttributeLists.SelectMany(x => x.Attributes).Single(x => x.Name.ToString() == "WebInvoke");
+
 			var dictionaryName = ParseTypeName("Dictionary<string, object>");
 			var queryStringVariable = VariableDeclarator(QueryStringParamters);
 			var queryStringDict = LocalDeclarationStatement(VariableDeclaration(dictionaryName)
@@ -119,7 +120,7 @@ namespace RemoteClient.Roslyn
 			}
 
 			
-			list.AddRange(GetInvocationCode(queryStringVariable.Identifier, interfaceMethod.ReturnType));
+			list.AddRange(GetInvocationCode(queryStringVariable.Identifier, interfaceMethod.ReturnType, attribute));
 
 			return MethodDeclaration(interfaceMethod.ReturnType, interfaceMethod.Identifier)
 				.WithParameterList(interfaceMethod.ParameterList)
@@ -127,16 +128,18 @@ namespace RemoteClient.Roslyn
 				.AddBodyStatements(list.ToArray());
 		}
 
-		private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, TypeSyntax interfaceMethodReturnType)
+		private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, TypeSyntax interfaceMethodReturnType, AttributeSyntax attribute)
 		{
 			const string descriptor = "descriptor";
+
+			var arguments = attribute.ArgumentList.Arguments[0];
 			var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
 				new[]
 				{
-					Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal("1"))),
+					Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(arguments.NameEquals?.ToString()))),
 					Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal("2"))),
 					Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)), IdentifierName("Xml"))),
-					Argument(CastExpression(ParseTypeName(nameof(OperationWebMessageFormat)), LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(0)))),
+					Argument(CastExpression(ParseTypeName(nameof(OperationWebMessageFormat)), LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(attribute.ArgumentList.Arguments.Count)))),
 				}
 			));
 
