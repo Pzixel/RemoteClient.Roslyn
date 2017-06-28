@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RemoteClient.Roslyn\RemoteClient.Roslyn.csproj" />
+    <DotNetCliToolReference Include="dotnet-codegen" Version="0.4.9" />
   </ItemGroup>
 
 </Project>
