@@ -20,7 +20,6 @@ namespace RemoteClient.Roslyn.Test
 	{
 		[WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
 		Task<string> GetStringAsync(string value, string bar);
-		Task SendSomethingAsync(string value);
 	}
 
 	[RemoteClient]
