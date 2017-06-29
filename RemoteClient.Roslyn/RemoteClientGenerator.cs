@@ -198,10 +198,11 @@ namespace RemoteClient.Roslyn
 			{
 				case GenericNameSyntax genericName:
 					return GenericName(nameof(IRemoteRequestProcessor.GetResultAsync)).WithTypeArgumentList(genericName.TypeArgumentList);
-				case IdentifierNameSyntax _:
+			    case QualifiedNameSyntax _:
+                case IdentifierNameSyntax _:
 					return IdentifierName(nameof(IRemoteRequestProcessor.ExecuteAsync));
 				default:
-					throw new InvalidOperationException("Never throws");
+					throw new InvalidOperationException($"Unknown return type: {interfaceMethodReturnType} ({interfaceMethodReturnType.GetType()})");
 			}
 		}
 
@@ -212,19 +213,19 @@ namespace RemoteClient.Roslyn
 
 	    private TypeSyntax GetReturnType(SemanticModel semanticModel, TypeSyntax returnType)
 	    {
-	        var returnTypeSymbol = semanticModel.GetDeclaredSymbol(returnType);
+	        var returnTypeSymbol = (INamedTypeSymbol) semanticModel.GetSymbolInfo(returnType).Symbol;
             if (IsTask(returnTypeSymbol, semanticModel))
             {
                 return returnType;
             }
-	        if (false)
+            if (false)
 	            throw new Exception("Interface contains methods with non-task return type");
-	        return ParseTypeName(nameof(Task));
+	        return TypeSymbolMatchesType(returnTypeSymbol, typeof(void), semanticModel) ? ParseTypeName(nameof(Task)) : GenericName(Identifier("Task"), TypeArgumentList(SeparatedList(new[]{ returnType })));
 	    }
 
-	    static bool IsTask(ISymbol typeSymbol, SemanticModel semanticModel) => TypeSymbolMatchesType(typeSymbol, typeof(Task), semanticModel);
+	    private static bool IsTask(INamedTypeSymbol typeSymbol, SemanticModel semanticModel) => TypeSymbolMatchesType(typeSymbol, typeof(Task), semanticModel) || TypeSymbolMatchesType(typeSymbol.ConstructedFrom, typeof(Task<>), semanticModel);
 
-	    static bool TypeSymbolMatchesType(ISymbol typeSymbol, Type type, SemanticModel semanticModel) => GetTypeSymbolForType(type, semanticModel).Equals(typeSymbol);
+	    private static bool TypeSymbolMatchesType(ISymbol typeSymbol, Type type, SemanticModel semanticModel) => GetTypeSymbolForType(type, semanticModel).Equals(typeSymbol);
 
 	    private static INamedTypeSymbol GetTypeSymbolForType(Type type, SemanticModel semanticModel)
 	    {
