@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using CodeGeneration.Roslyn;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using RemoteClient.Roslyn.Attributes;
 using Validation;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
@@ -15,6 +17,7 @@ namespace RemoteClient.Roslyn
     public class RemoteClientGenerator : ICodeGenerator
 	{
 		private const string QueryStringParamters = "queryStringParamters";
+		private const string BodyParamters = "bodyParamters";
 		private const string ProcessorName = "processor";
 
 		private readonly bool _inheritInterface;
@@ -65,14 +68,8 @@ namespace RemoteClient.Roslyn
 			var implementedMembers = new List<MemberDeclarationSyntax>();
 			foreach (var interfaceMethod in applyToInterface.Members.OfType<MethodDeclarationSyntax>())
 			{
-				if (true)
-				{
-					implementedMembers.Add(GetMethodImplementation(interfaceMethod));
-				}
-				else
-				{
-					throw new Exception("Interface contains methods with non-task return type");
-				}
+			    var returnType = GetReturnType(context.SemanticModel, interfaceMethod.ReturnType);
+			    implementedMembers.Add(GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType));
 			}
 
 			clientClass = clientClass.AddMembers(implementedMembers.ToArray());
@@ -92,20 +89,30 @@ namespace RemoteClient.Roslyn
 			return Task.FromResult(List<MemberDeclarationSyntax>().Add(clientsNamespace));
 		}
 
-		private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod)
+		private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod, SemanticModel semanticModel, TypeSyntax returnType)
 		{
-			var attribute = interfaceMethod.AttributeLists.SelectMany(x => x.Attributes).Single(x => x.Name.ToString() == "WebInvoke");
+		    var propertySymbol = semanticModel.GetDeclaredSymbol(interfaceMethod);
+		    var attribute = propertySymbol?.GetAttributes().FirstOrDefault(a => a.AttributeClass.Name == nameof(WebInvokeAttribute));
+            
+            if (attribute == null)
+                throw new InvalidOperationException($"Cannot proceed class generation due to missing {nameof(WebInvokeAttribute)}");
 
-			var dictionaryName = ParseTypeName("Dictionary<string, object>");
+		    var attributeDictionary = attribute.NamedArguments.ToImmutableDictionary(pair => pair.Key, pair => pair.Value.Value);
+
+            var dictionaryName = ParseTypeName("Dictionary<string, object>");
 			var queryStringVariable = VariableDeclarator(QueryStringParamters);
+			var bodyVariable = VariableDeclarator(BodyParamters);
 			var queryStringDict = LocalDeclarationStatement(VariableDeclaration(dictionaryName)
 				.AddVariables(queryStringVariable.WithInitializer(EqualsValueClause(InvocationExpression(ObjectCreationExpression(dictionaryName))))));
+			var bodyDict = LocalDeclarationStatement(VariableDeclaration(dictionaryName)
+				.AddVariables(bodyVariable.WithInitializer(EqualsValueClause(InvocationExpression(ObjectCreationExpression(dictionaryName))))));
 
-			var list = new List<StatementSyntax> {queryStringDict};
+		    string uriTemplate = attributeDictionary[nameof(WebInvokeAttribute.UriTemplate)].ToString();
+            var list = new List<StatementSyntax> {queryStringDict, bodyDict};
 			foreach (ParameterSyntax parameter in interfaceMethod.ParameterList.ChildNodes())
 			{
-				string dictToAdd = QueryStringParamters;
-
+				string dictToAdd = uriTemplate.Contains("{" + parameter.Identifier.ValueText + "}") ? QueryStringParamters : BodyParamters;
+                
 				var key = Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(parameter.Identifier.ValueText)));
 				var value = Argument(IdentifierName(parameter.Identifier));
 
@@ -120,28 +127,27 @@ namespace RemoteClient.Roslyn
 			}
 
 			
-			list.AddRange(GetInvocationCode(queryStringVariable.Identifier, interfaceMethod.ReturnType, attribute));
+			list.AddRange(GetInvocationCode(queryStringVariable.Identifier, bodyVariable.Identifier, returnType, attributeDictionary));
 
-			return MethodDeclaration(interfaceMethod.ReturnType, interfaceMethod.Identifier)
+			return MethodDeclaration(returnType, interfaceMethod.Identifier)
 				.WithParameterList(interfaceMethod.ParameterList)
 				.AddModifiers(Token(SyntaxKind.PublicKeyword))
 				.AddBodyStatements(list.ToArray());
 		}
 
-		private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, TypeSyntax interfaceMethodReturnType, AttributeSyntax attribute)
+		private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken, TypeSyntax interfaceMethodReturnType, ImmutableDictionary<string, object> attributeData)
 		{
 			const string descriptor = "descriptor";
 
-			var arguments = attribute.ArgumentList.Arguments[0];
-			var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
-				new[]
-				{
-					Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(arguments.NameEquals?.ToString()))),
-					Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal("2"))),
-					Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)), IdentifierName("Xml"))),
-					Argument(CastExpression(ParseTypeName(nameof(OperationWebMessageFormat)), LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(attribute.ArgumentList.Arguments.Count)))),
-				}
-			));
+		    var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
+		        new[]
+		        {
+		            Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(attributeData[nameof(WebInvokeAttribute.Method)].ToString()))),
+		            Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(attributeData[nameof(WebInvokeAttribute.UriTemplate)].ToString()))),
+		            Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)), IdentifierName(Enum.GetName(typeof(OperationWebMessageFormat), attributeData[nameof(WebInvokeAttribute.RequestFormat)])))),
+		            Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)), IdentifierName(Enum.GetName(typeof(OperationWebMessageFormat), attributeData[nameof(WebInvokeAttribute.ResponseFormat)])))),
+                }
+		    ));
 
 			var descriptorName = ParseTypeName(nameof(RemoteOperationDescriptor));
 			var ctor = EqualsValueClause(InvocationExpression(ObjectCreationExpression(descriptorName), remoteOperationDescriptorArguments));
@@ -159,7 +165,7 @@ namespace RemoteClient.Roslyn
 				{
 					Argument(IdentifierName(variableDeclaratorSyntax.Identifier)),
 					Argument(IdentifierName(queryStringDictToken)),
-					Argument(IdentifierName(queryStringDictToken))
+					Argument(IdentifierName(bodyDictToken))
 				}
 			));
 			
@@ -203,5 +209,36 @@ namespace RemoteClient.Roslyn
 			ParseName(namespaceName)).NormalizeWhitespace();
 
 		private static string TrimInterfaceFirstLetter(string interfaceName) => interfaceName[0] == 'I' ? interfaceName.Substring(1) : interfaceName;
-	}
+
+	    private TypeSyntax GetReturnType(SemanticModel semanticModel, TypeSyntax returnType)
+	    {
+	        var returnTypeSymbol = semanticModel.GetDeclaredSymbol(returnType);
+            if (IsTask(returnTypeSymbol, semanticModel))
+            {
+                return returnType;
+            }
+	        if (false)
+	            throw new Exception("Interface contains methods with non-task return type");
+	        return ParseTypeName(nameof(Task));
+	    }
+
+	    static bool IsTask(ISymbol typeSymbol, SemanticModel semanticModel) => TypeSymbolMatchesType(typeSymbol, typeof(Task), semanticModel);
+
+	    static bool TypeSymbolMatchesType(ISymbol typeSymbol, Type type, SemanticModel semanticModel) => GetTypeSymbolForType(type, semanticModel).Equals(typeSymbol);
+
+	    private static INamedTypeSymbol GetTypeSymbolForType(Type type, SemanticModel semanticModel)
+	    {
+	        if (!type.IsConstructedGenericType)
+	        {
+	            return semanticModel.Compilation.GetTypeByMetadataName(type.FullName);
+	        }
+
+	        // get all typeInfo's for the Type arguments 
+	        var typeArgumentsTypeInfos = type.GenericTypeArguments.Select(a => GetTypeSymbolForType(a, semanticModel));
+
+	        var openType = type.GetGenericTypeDefinition();
+	        var typeSymbol = semanticModel.Compilation.GetTypeByMetadataName(openType.FullName);
+	        return typeSymbol.Construct(typeArgumentsTypeInfos.ToArray<ITypeSymbol>());
+	    }
+    }
 }

@@ -1,4 +1,3 @@
-using System;
 using System.Threading.Tasks;
 using RemoteClient.Roslyn.Attributes;
 using RemoteClient.Roslyn.Test.Clients;
@@ -20,12 +19,20 @@ namespace RemoteClient.Roslyn.Test
 	{
 		[WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
 		Task<string> GetStringAsync(string value, string bar);
-	}
 
-	[RemoteClient]
+
+	    [WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
+	    Task ExecuteStringAsync(string value, string bar);
+    }
+
+	[RemoteClient(false)]
 	public interface IBar
 	{
+	    [WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
+	    string GetString(string value, string bar);
 
-	}
-;
+
+	    [WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
+	    void ExecuteStringAsync(string value, string bar);
+    };
 }
