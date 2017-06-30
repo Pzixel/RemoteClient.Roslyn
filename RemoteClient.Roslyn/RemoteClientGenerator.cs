@@ -82,7 +82,7 @@ namespace RemoteClient.Roslyn
 			var clientsNamespace = NamespaceDeclaration(ParseName("Clients"))
 				.AddUsings(
 					GetUsingDirectiveSyntax("System"),
-					GetUsingDirectiveSyntax("System.Collections.Generic"),
+					GetUsingDirectiveSyntax("System.Collections.Immutable"),
 					GetUsingDirectiveSyntax("System.Threading.Tasks"))
 				.AddMembers(clientClass);
 
@@ -99,13 +99,20 @@ namespace RemoteClient.Roslyn
 
 		    var attributeDictionary = attribute.NamedArguments.ToImmutableDictionary(pair => pair.Key, pair => pair.Value.Value);
 
-            var dictionaryName = ParseTypeName("Dictionary<string, object>");
 			var queryStringVariable = VariableDeclarator(QueryStringParamters);
 			var bodyVariable = VariableDeclarator(BodyParamters);
-			var queryStringDict = LocalDeclarationStatement(VariableDeclaration(dictionaryName)
-				.AddVariables(queryStringVariable.WithInitializer(EqualsValueClause(InvocationExpression(ObjectCreationExpression(dictionaryName))))));
-			var bodyDict = LocalDeclarationStatement(VariableDeclaration(dictionaryName)
-				.AddVariables(bodyVariable.WithInitializer(EqualsValueClause(InvocationExpression(ObjectCreationExpression(dictionaryName))))));
+		    var initializer = EqualsValueClause(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("ImmutableDictionary"), GenericName(nameof(ImmutableDictionary.CreateBuilder))
+                .WithTypeArgumentList(TypeArgumentList(SeparatedList(
+					new[]
+					{
+						ParseTypeName("string"),
+					    ParseTypeName("object")
+                    }
+				))))));
+		    var queryStringDict = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
+				.AddVariables(queryStringVariable.WithInitializer(initializer)));
+			var bodyDict = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
+				.AddVariables(bodyVariable.WithInitializer(initializer)));
 
 		    string uriTemplate = attributeDictionary[nameof(WebInvokeAttribute.UriTemplate)].ToString();
             var list = new List<StatementSyntax> {queryStringDict, bodyDict};
@@ -125,8 +132,7 @@ namespace RemoteClient.Roslyn
 
 				list.Add(dictionaryAddCall);
 			}
-
-			
+            
 			list.AddRange(GetInvocationCode(queryStringVariable.Identifier, bodyVariable.Identifier, returnType, attributeDictionary));
 
 			return MethodDeclaration(returnType, interfaceMethod.Identifier)
@@ -153,7 +159,7 @@ namespace RemoteClient.Roslyn
 			var ctor = EqualsValueClause(InvocationExpression(ObjectCreationExpression(descriptorName), remoteOperationDescriptorArguments));
 
 			var variableDeclaratorSyntax = VariableDeclarator(descriptor);
-			var localDeclarationStatement = LocalDeclarationStatement(VariableDeclaration(descriptorName)
+			var localDeclarationStatement = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
 				.AddVariables(variableDeclaratorSyntax.WithInitializer(ctor)));
 
 			yield return localDeclarationStatement;
@@ -164,9 +170,9 @@ namespace RemoteClient.Roslyn
 				new[]
 				{
 					Argument(IdentifierName(variableDeclaratorSyntax.Identifier)),
-					Argument(IdentifierName(queryStringDictToken)),
-					Argument(IdentifierName(bodyDictToken))
-				}
+					Argument(GetCallingExpression(queryStringDictToken, nameof(ImmutableDictionary<string, object>.Builder.ToImmutable))),
+					Argument(GetCallingExpression(bodyDictToken, nameof(ImmutableDictionary<string, object>.Builder.ToImmutable)))
+                }
 			));
 			
 			var requestName = ParseTypeName(nameof(RemoteRequest));
@@ -174,7 +180,7 @@ namespace RemoteClient.Roslyn
 			var requestCtor = EqualsValueClause(InvocationExpression(ObjectCreationExpression(requestName), remoteRequestArguments));
 
 			var variableDeclaratorSyntax2 = VariableDeclarator(request);
-			var localDeclarationStatement2 = LocalDeclarationStatement(VariableDeclaration(requestName)
+			var localDeclarationStatement2 = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
 				.AddVariables(variableDeclaratorSyntax2.WithInitializer(requestCtor)));
 
 			yield return localDeclarationStatement2;
@@ -192,7 +198,10 @@ namespace RemoteClient.Roslyn
 			yield return returnExpression;
 		}
 
-		private static SimpleNameSyntax GetCallingMethod(TypeSyntax interfaceMethodReturnType)
+	    private static ExpressionSyntax GetCallingExpression(SyntaxToken queryStringDictToken, string methodName) => 
+            InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName(queryStringDictToken), IdentifierName(methodName)));
+
+	    private static SimpleNameSyntax GetCallingMethod(TypeSyntax interfaceMethodReturnType)
 		{
 			switch (interfaceMethodReturnType)
 			{

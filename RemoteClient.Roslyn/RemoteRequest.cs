@@ -1,14 +1,14 @@
-using System.Collections.Generic;
+using System.Collections.Immutable;
 
 namespace RemoteClient.Roslyn
 {
 	public class RemoteRequest : IRemoteRequest
 	{
 		public IRemoteOperationDescriptor Descriptor { get; }
-		public IReadOnlyDictionary<string, object> QueryStringParameters { get; }
-		public IReadOnlyDictionary<string, object> BodyParameters { get; }
+		public IImmutableDictionary<string, object> QueryStringParameters { get; }
+		public IImmutableDictionary<string, object> BodyParameters { get; }
 
-		public RemoteRequest(IRemoteOperationDescriptor descriptor, IReadOnlyDictionary<string, object> queryStringParameters, IReadOnlyDictionary<string, object> bodyParameters)
+		public RemoteRequest(IRemoteOperationDescriptor descriptor, IImmutableDictionary<string, object> queryStringParameters, IImmutableDictionary<string, object> bodyParameters)
 		{
 			Descriptor = descriptor;
 			QueryStringParameters = queryStringParameters;
