@@ -7,7 +7,7 @@ namespace RemoteClient.Roslyn.Test
 {
     public class GenerationTest
     {
-        public void Test1()
+        public void Test()
         {
 			var fooCLient = new FooClient(null);
         }

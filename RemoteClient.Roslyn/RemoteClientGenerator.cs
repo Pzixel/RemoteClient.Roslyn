@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -64,15 +65,13 @@ namespace RemoteClient.Roslyn
 				.AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(IDisposable))))
 				.AddMembers(processorField, ctor, disposeMethod);
 
-			
-			var implementedMembers = new List<MemberDeclarationSyntax>();
-			foreach (var interfaceMethod in applyToInterface.Members.OfType<MethodDeclarationSyntax>())
-			{
-			    var returnType = GetReturnType(context.SemanticModel, interfaceMethod.ReturnType);
-			    implementedMembers.Add(GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType));
-			}
 
-			clientClass = clientClass.AddMembers(implementedMembers.ToArray());
+			var implementedMembers = (from interfaceMethod in applyToInterface.Members.OfType<MethodDeclarationSyntax>()
+			                          let returnType = GetReturnType(interfaceMethod.ReturnType, context.SemanticModel)
+			                          let methodImplementation = GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType)
+			                          select (MemberDeclarationSyntax) methodImplementation).ToArray();
+
+			clientClass = clientClass.AddMembers(implementedMembers);
 
 			if (_inheritInterface)
 			{
@@ -89,6 +88,7 @@ namespace RemoteClient.Roslyn
 			return Task.FromResult(List<MemberDeclarationSyntax>().Add(clientsNamespace));
 		}
 
+		[SuppressMessage("ReSharper", "PossibleInvalidCastExceptionInForeachLoop")]
 		private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod, SemanticModel semanticModel, TypeSyntax returnType)
 		{
 		    var propertySymbol = semanticModel.GetDeclaredSymbol(interfaceMethod);
@@ -141,11 +141,9 @@ namespace RemoteClient.Roslyn
 				.AddBodyStatements(list.ToArray());
 		}
 
-		private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken, TypeSyntax interfaceMethodReturnType, ImmutableDictionary<string, object> attributeData)
+		private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken, TypeSyntax interfaceMethodReturnType, IReadOnlyDictionary<string, object> attributeData)
 		{
-			const string descriptor = "descriptor";
-
-		    var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
+			var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
 		        new[]
 		        {
 		            Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(attributeData[nameof(WebInvokeAttribute.Method)].ToString()))),
@@ -155,53 +153,44 @@ namespace RemoteClient.Roslyn
                 }
 		    ));
 
-			var descriptorName = ParseTypeName(nameof(RemoteOperationDescriptor));
-			var ctor = EqualsValueClause(InvocationExpression(ObjectCreationExpression(descriptorName), remoteOperationDescriptorArguments));
+			var descriptorInitializer = EqualsValueClause(InvocationExpression(ObjectCreationExpression(ParseTypeName(nameof(RemoteOperationDescriptor))), remoteOperationDescriptorArguments));
+			var descriptorDeclaration = VariableDeclarator("descriptor");
+			var descriptorInitialization = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
+				.AddVariables(descriptorDeclaration.WithInitializer(descriptorInitializer)));
 
-			var variableDeclaratorSyntax = VariableDeclarator(descriptor);
-			var localDeclarationStatement = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
-				.AddVariables(variableDeclaratorSyntax.WithInitializer(ctor)));
+			yield return descriptorInitialization;
 
-			yield return localDeclarationStatement;
-
-
-			const string request = "request";
 			var remoteRequestArguments = ArgumentList(SeparatedList(
 				new[]
 				{
-					Argument(IdentifierName(variableDeclaratorSyntax.Identifier)),
+					Argument(IdentifierName(descriptorDeclaration.Identifier)),
 					Argument(GetCallingExpression(queryStringDictToken, nameof(ImmutableDictionary<string, object>.Builder.ToImmutable))),
 					Argument(GetCallingExpression(bodyDictToken, nameof(ImmutableDictionary<string, object>.Builder.ToImmutable)))
                 }
 			));
+
+			var requestInitializer = EqualsValueClause(InvocationExpression(ObjectCreationExpression(ParseTypeName(nameof(RemoteRequest))), remoteRequestArguments));
+			var requestDeclaration = VariableDeclarator("request");
+			var requestInitialization = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
+				.AddVariables(requestDeclaration.WithInitializer(requestInitializer)));
+
+			yield return requestInitialization;
 			
-			var requestName = ParseTypeName(nameof(RemoteRequest));
-
-			var requestCtor = EqualsValueClause(InvocationExpression(ObjectCreationExpression(requestName), remoteRequestArguments));
-
-			var variableDeclaratorSyntax2 = VariableDeclarator(request);
-			var localDeclarationStatement2 = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
-				.AddVariables(variableDeclaratorSyntax2.WithInitializer(requestCtor)));
-
-			yield return localDeclarationStatement2;
-			
-			var withTypeArgumentList = GetCallingMethod(interfaceMethodReturnType);
-			var returnExpression = ReturnStatement(InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
-				IdentifierName(ProcessorName), withTypeArgumentList),
-				ArgumentList(SeparatedList(
-					new[]
-					{
-						Argument(IdentifierName(request)),
-					}
-				))));
+			var processorCallingMethod = GetCallingMethod(interfaceMethodReturnType);
+			var returnExpression = ReturnStatement(GetCallingExpression(IdentifierName(ProcessorName), processorCallingMethod, requestDeclaration.Identifier));
 
 			yield return returnExpression;
 		}
 
-	    private static ExpressionSyntax GetCallingExpression(SyntaxToken queryStringDictToken, string methodName) => 
-            InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName(queryStringDictToken), IdentifierName(methodName)));
+		private static ExpressionSyntax GetCallingExpression(SyntaxToken invocationSite, string methodName, params SyntaxToken[] arguments) =>
+			GetCallingExpression(IdentifierName(invocationSite), IdentifierName(methodName), arguments);
 
-	    private static SimpleNameSyntax GetCallingMethod(TypeSyntax interfaceMethodReturnType)
+		private static ExpressionSyntax GetCallingExpression(ExpressionSyntax invocationSite, SimpleNameSyntax methodName, params SyntaxToken[] arguments) =>
+			InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, invocationSite, methodName),
+			                     ArgumentList(SeparatedList(arguments.Select(arg => Argument(IdentifierName(arg))))));
+
+
+		private static SimpleNameSyntax GetCallingMethod(TypeSyntax interfaceMethodReturnType)
 		{
 			switch (interfaceMethodReturnType)
 			{
@@ -220,7 +209,7 @@ namespace RemoteClient.Roslyn
 
 		private static string TrimInterfaceFirstLetter(string interfaceName) => interfaceName[0] == 'I' ? interfaceName.Substring(1) : interfaceName;
 
-	    private TypeSyntax GetReturnType(SemanticModel semanticModel, TypeSyntax returnType)
+	    private TypeSyntax GetReturnType(TypeSyntax returnType, SemanticModel semanticModel)
 	    {
 	        var returnTypeSymbol = (INamedTypeSymbol) semanticModel.GetSymbolInfo(returnType).Symbol;
             if (IsTask(returnTypeSymbol, semanticModel))
@@ -228,11 +217,13 @@ namespace RemoteClient.Roslyn
                 return returnType;
             }
             if (_inheritInterface)
-	            throw new Exception("Interface contains methods with non-task return type");
+	            throw new Exception("Service interface contains methods with non-task return type");
 	        return TypeSymbolMatchesType(returnTypeSymbol, typeof(void), semanticModel) ? ParseTypeName(nameof(Task)) : GenericName(Identifier("Task"), TypeArgumentList(SeparatedList(new[]{ returnType })));
 	    }
 
-	    private static bool IsTask(INamedTypeSymbol typeSymbol, SemanticModel semanticModel) => TypeSymbolMatchesType(typeSymbol, typeof(Task), semanticModel) || TypeSymbolMatchesType(typeSymbol.ConstructedFrom, typeof(Task<>), semanticModel);
+	    private static bool IsTask(INamedTypeSymbol typeSymbol, SemanticModel semanticModel) => typeSymbol.IsGenericType ? 
+			TypeSymbolMatchesType(typeSymbol.ConstructedFrom, typeof(Task<>), semanticModel) : 
+			TypeSymbolMatchesType(typeSymbol, typeof(Task), semanticModel);
 
 	    private static bool TypeSymbolMatchesType(ISymbol typeSymbol, Type type, SemanticModel semanticModel) => GetTypeSymbolForType(type, semanticModel).Equals(typeSymbol);
 
