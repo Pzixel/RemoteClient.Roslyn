@@ -9,7 +9,8 @@ before_build:
 build_script:
 - msbuild RemoteClient.Roslyn.sln /nologo /m /v:minimal /t:build,pack
 install:
-- |- nuget sources add -Name api.nuget.org -Source https://api.nuget.org/v3/index.json
+- |- # adding custom nugets
+  nuget sources add -Name api.nuget.org -Source https://api.nuget.org/v3/index.json
   nuget sources add -Name corefxlab -Source https://dotnet.myget.org/F/dotnet-corefxlab/api/v3/index.json
 artifacts:
 - path: bin\**\*.nupkg
