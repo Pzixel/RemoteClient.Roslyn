@@ -4,8 +4,8 @@ image: Visual Studio 2017
 configuration: Release
 before_build:
 - |- # Restore TWICE. See https://github.com/AArnott/Nerdbank.GitVersioning/issues/113#issuecomment-285903085
-  msbuild RemoteClient.Roslyn.sln /nologo /m /t:restore > nul
-  msbuild RemoteClient.Roslyn.sln /nologo /m /v:quiet /t:restore
+  msbuild RemoteClient.Roslyn.sln /nologo /m /t:restore
+  msbuild RemoteClient.Roslyn.sln /nologo /m /v:quiet /t:restore > nul
 build_script:
 - msbuild RemoteClient.Roslyn.sln /nologo /m /v:minimal /t:build,pack
 install:
