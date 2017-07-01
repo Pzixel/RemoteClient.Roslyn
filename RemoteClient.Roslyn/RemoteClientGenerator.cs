@@ -227,7 +227,7 @@ namespace RemoteClient.Roslyn
             {
                 return returnType;
             }
-            if (false)
+            if (_inheritInterface)
 	            throw new Exception("Interface contains methods with non-task return type");
 	        return TypeSymbolMatchesType(returnTypeSymbol, typeof(void), semanticModel) ? ParseTypeName(nameof(Task)) : GenericName(Identifier("Task"), TypeArgumentList(SeparatedList(new[]{ returnType })));
 	    }

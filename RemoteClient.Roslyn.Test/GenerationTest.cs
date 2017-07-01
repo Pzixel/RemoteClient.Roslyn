@@ -25,7 +25,7 @@ namespace RemoteClient.Roslyn.Test
 	    Task ExecuteStringAsync(string value, string bar);
     }
 
-	[RemoteClient(false)]
+	[RemoteClient]
 	public interface IBar
 	{
 	    [WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
