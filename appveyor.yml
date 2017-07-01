@@ -15,6 +15,3 @@ install:
 artifacts:
 - path: bin\**\*.nupkg
   name: NuGet Package
-nuget:
-  account_feed: true
-  project_feed: true
