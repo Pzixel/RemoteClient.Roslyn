@@ -8,6 +8,11 @@ before_build:
   msbuild RemoteClient.Roslyn.sln /nologo /m /v:quiet /t:restore
 build_script:
 - msbuild RemoteClient.Roslyn.sln /nologo /m /v:minimal /t:build,pack
+install:
+  nuget sources add -Name corefxlab -Source https://dotnet.myget.org/F/dotnet-corefxlab/api/v3/index.json
 artifacts:
 - path: bin\**\*.nupkg
   name: NuGet Package
+nuget:
+  account_feed: true
+  project_feed: true
