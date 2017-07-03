@@ -59,12 +59,18 @@ namespace RemoteClient.Roslyn
             var memberAccessExpressionSyntax = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, processorFieldExpression, IdentifierName(nameof(IDisposable.Dispose)));
             var invocationExpressionSyntax = InvocationExpression(memberAccessExpressionSyntax);
             var disposeMethod = MethodDeclaration(ParseTypeName("void"), nameof(IDisposable.Dispose))
-                .AddModifiers(Token(SyntaxKind.PublicKeyword))
+                .AddModifiers(Token(SyntaxKind.ProtectedKeyword), Token(SyntaxKind.OverrideKeyword))
+                .AddParameterListParameters(Parameter(
+                    List<AttributeListSyntax>(),
+                    TokenList(),
+                    ParseTypeName("bool"),
+                    Identifier("disposing"),
+                    null))
                 .AddBodyStatements(ExpressionStatement(invocationExpressionSyntax));
 
             var clientClass = ClassDeclaration(clientIdentifier)
                 .AddModifiers(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.SealedKeyword))
-                .AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(IDisposable))))
+                .AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(DisposableBase))), SimpleBaseType(ParseTypeName(nameof(IDisposable))))
                 .AddMembers(processorField, ctor, disposeMethod);
 
 
@@ -116,6 +122,13 @@ namespace RemoteClient.Roslyn
             if (attribute == null)
                 throw new InvalidOperationException($"Cannot proceed class generation due to missing {nameof(WebInvokeAttribute)}");
 
+            var getFullNameFromType = Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, GetCallingExpression(Identifier("this"), nameof(GetType)), IdentifierName(nameof(Type.FullName))));
+            var list = new List<StatementSyntax>
+            {
+                IfStatement(IdentifierName(Identifier(nameof(DisposableBase.IsDisposed))),
+                    ThrowStatement(ObjectCreationExpression(ParseTypeName(nameof(ObjectDisposedException)), ArgumentList(SeparatedList(new[]{getFullNameFromType })), null)))
+            };
+            
             var attributeDictionary = attribute.NamedArguments.ToImmutableDictionary(pair => pair.Key, pair => pair.Value.Value);
 
             var queryStringVariable = VariableDeclarator(QueryStringParamters);
@@ -134,7 +147,8 @@ namespace RemoteClient.Roslyn
                 .AddVariables(bodyVariable.WithInitializer(initializer)));
 
             string uriTemplate = attributeDictionary[nameof(WebInvokeAttribute.UriTemplate)].ToString();
-            var list = new List<StatementSyntax> { queryStringDict, bodyDict };
+            list.Add(queryStringDict);
+            list.Add(bodyDict);
             foreach (ParameterSyntax parameter in interfaceMethod.ParameterList.ChildNodes())
             {
                 string dictToAdd = uriTemplate.Contains("{" + parameter.Identifier.ValueText + "}") ? QueryStringParamters : BodyParamters;
