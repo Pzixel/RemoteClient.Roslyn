@@ -9,11 +9,11 @@ namespace RemoteClient.Roslyn.Test
     {
         public void Test()
         {
-			var fooCLient = new FooClient(null);
+			var fooClient = new FooClient(null);
         }
     }
 
-	[RemoteClient(true)]
+	[RemoteClient(true, true)]
 	public interface IFoo
 	{
 		[WebInvoke(Method = "GET", UriTemplate = "foo/{value}", RequestFormat = OperationWebMessageFormat.Json, ResponseFormat = OperationWebMessageFormat.Xml)]
