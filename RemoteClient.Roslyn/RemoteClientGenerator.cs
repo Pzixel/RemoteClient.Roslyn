@@ -40,9 +40,7 @@ namespace RemoteClient.Roslyn
             var processorField = FieldDeclaration(VariableDeclaration(ParseTypeName(nameof(IRemoteRequestProcessor)))
                     .AddVariables(VariableDeclarator(ProcessorName)))
                 .AddModifiers(Token(SyntaxKind.PrivateKeyword), Token(SyntaxKind.ReadOnlyKeyword));
-
-            var processorFieldExpression = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ThisExpression(), IdentifierName(ProcessorName));
-
+			
             var processorCtorParameter = Parameter(
                 List<AttributeListSyntax>(),
                 TokenList(),
@@ -50,10 +48,23 @@ namespace RemoteClient.Roslyn
                 Identifier(ProcessorName),
                 null);
 
-            var ctor = ConstructorDeclaration(clientIdentifier)
+	        var processorFieldExpression = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ThisExpression(), IdentifierName(ProcessorName));
+			var assigmentPart = BinaryExpression(
+		        SyntaxKind.CoalesceExpression,
+		        IdentifierName(ProcessorName),
+		        ThrowExpression(
+			        ObjectCreationExpression(
+					        IdentifierName(nameof(ArgumentNullException)))
+				        .AddArgumentListArguments(
+					        Argument(
+						        LiteralExpression(
+							        SyntaxKind.StringLiteralExpression,
+							        Literal(ProcessorName))))));
+
+			var ctor = ConstructorDeclaration(clientIdentifier)
                 .AddModifiers(Token(SyntaxKind.PublicKeyword))
                 .AddParameterListParameters(processorCtorParameter)
-                .AddBodyStatements(ExpressionStatement(AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, processorFieldExpression, IdentifierName(ProcessorName))));
+                .AddBodyStatements(ExpressionStatement(AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, processorFieldExpression, assigmentPart)));
 
 
             var memberAccessExpressionSyntax = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, processorFieldExpression, IdentifierName(nameof(IDisposable.Dispose)));
@@ -122,7 +133,7 @@ namespace RemoteClient.Roslyn
             if (attribute == null)
                 throw new InvalidOperationException($"Cannot proceed class generation due to missing {nameof(WebInvokeAttribute)}");
 
-            var getFullNameFromType = Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, GetCallingExpression(Identifier("this"), nameof(GetType)), IdentifierName(nameof(Type.FullName))));
+            var getFullNameFromType = Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, GetCallingExpression(ThisExpression(), IdentifierName(nameof(GetType))), IdentifierName(nameof(Type.FullName))));
             var list = new List<StatementSyntax>
             {
                 IfStatement(IdentifierName(Identifier(nameof(DisposableBase.IsDisposed))),
@@ -215,10 +226,10 @@ namespace RemoteClient.Roslyn
             yield return returnExpression;
         }
 
-        private static ExpressionSyntax GetCallingExpression(SyntaxToken invocationSite, string methodName, params SyntaxToken[] arguments) =>
-            GetCallingExpression(IdentifierName(invocationSite), IdentifierName(methodName), arguments);
-
-        private static ExpressionSyntax GetCallingExpression(ExpressionSyntax invocationSite, SimpleNameSyntax methodName, params SyntaxToken[] arguments) =>
+	    private static ExpressionSyntax GetCallingExpression(SyntaxToken invocationSite, string methodName, params SyntaxToken[] arguments) =>
+		    GetCallingExpression(IdentifierName(invocationSite), IdentifierName(methodName), arguments);
+		
+		private static ExpressionSyntax GetCallingExpression(ExpressionSyntax invocationSite, SimpleNameSyntax methodName, params SyntaxToken[] arguments) =>
             InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, invocationSite, methodName),
                                  ArgumentList(SeparatedList(arguments.Select(arg => Argument(IdentifierName(arg))))));
 
