@@ -97,7 +97,7 @@ namespace RemoteClient.Roslyn
                 .AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(DisposableBase))), SimpleBaseType(ParseTypeName(nameof(IDisposable))))
                 .AddMembers(processorField, ctor, disposeMethod);
 
-            var trivia = Trivia(
+            var inheritDocTrivia = !_inheritServiceInterface ? default(SyntaxTrivia?) : Trivia(
                 DocumentationCommentTrivia(
                     SyntaxKind.SingleLineDocumentationCommentTrivia,
                     List(
@@ -130,7 +130,7 @@ namespace RemoteClient.Roslyn
 
             var implementedMembers = (from interfaceMethod in applyToInterface.Members.OfType<MethodDeclarationSyntax>()
                 let returnType = GetReturnType(interfaceMethod.ReturnType, context.SemanticModel)
-                let methodImplementation = GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType, trivia)
+                let methodImplementation = GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType, inheritDocTrivia)
                 select (MemberDeclarationSyntax) methodImplementation).ToArray();
 
             clientClass = clientClass.AddMembers(implementedMembers);
@@ -168,7 +168,7 @@ namespace RemoteClient.Roslyn
         }
 
         [SuppressMessage("ReSharper", "PossibleInvalidCastExceptionInForeachLoop")]
-        private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod, SemanticModel semanticModel, TypeSyntax returnType, SyntaxTrivia trivia)
+        private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod, SemanticModel semanticModel, TypeSyntax returnType, SyntaxTrivia? inheritDocTrivia)
         {
             var propertySymbol = semanticModel.GetDeclaredSymbol(interfaceMethod);
             var attribute = propertySymbol?.GetAttributes().FirstOrDefault(a => a.AttributeClass.Name == nameof(WebInvokeAttribute));
@@ -222,11 +222,15 @@ namespace RemoteClient.Roslyn
 
             list.AddRange(GetInvocationCode(queryStringVariable.Identifier, bodyVariable.Identifier, returnType, attributeDictionary));
 
-            return MethodDeclaration(returnType, interfaceMethod.Identifier)
+            var result = MethodDeclaration(returnType, interfaceMethod.Identifier)
                 .WithParameterList(interfaceMethod.ParameterList)
                 .AddModifiers(Token(SyntaxKind.PublicKeyword))
-                .AddBodyStatements(list.ToArray())
-                .WithLeadingTrivia(trivia);
+                .AddBodyStatements(list.ToArray());
+            if (inheritDocTrivia != null)
+            {
+                result = result.WithLeadingTrivia(inheritDocTrivia.Value);
+            }
+            return result;
         }
 
         private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken, TypeSyntax interfaceMethodReturnType, IReadOnlyDictionary<string, object> attributeData)
