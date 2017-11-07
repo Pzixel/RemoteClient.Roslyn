@@ -33,14 +33,27 @@ namespace RemoteClient.Roslyn
 
         public Task<SyntaxList<MemberDeclarationSyntax>> GenerateAsync(TransformationContext context, IProgress<Diagnostic> progress, CancellationToken cancellationToken)
         {
-            var applyToInterface = (InterfaceDeclarationSyntax)context.ProcessingMember;
+            try
+            {
+                return GenerateAsyncInternal(context);
+            }
+            catch (Exception ex)
+            {
+                progress?.Report(Diagnostic.Create("RC001", "RemoteClient", ex.Message, DiagnosticSeverity.Error, DiagnosticSeverity.Error, true, 0));
+                throw;
+            }
+        }
+
+        private Task<SyntaxList<MemberDeclarationSyntax>> GenerateAsyncInternal(TransformationContext context)
+        {
+            var applyToInterface = (InterfaceDeclarationSyntax) context.ProcessingMember;
 
             var clientIdentifier = Identifier(TrimInterfaceFirstLetter(applyToInterface.Identifier.ValueText) + "Client");
 
             var processorField = FieldDeclaration(VariableDeclaration(ParseTypeName(nameof(IRemoteRequestProcessor)))
                     .AddVariables(VariableDeclarator(ProcessorName)))
                 .AddModifiers(Token(SyntaxKind.PrivateKeyword), Token(SyntaxKind.ReadOnlyKeyword));
-			
+
             var processorCtorParameter = Parameter(
                 List<AttributeListSyntax>(),
                 TokenList(),
@@ -48,26 +61,26 @@ namespace RemoteClient.Roslyn
                 Identifier(ProcessorName),
                 null);
 
-	        var processorFieldExpression = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ThisExpression(), IdentifierName(ProcessorName));
-			var assigmentPart = BinaryExpression(
-		        SyntaxKind.CoalesceExpression,
-		        IdentifierName(ProcessorName),
-		        ThrowExpression(
-			        ObjectCreationExpression(
-					        IdentifierName(nameof(ArgumentNullException)))
-				        .AddArgumentListArguments(
-					        Argument(
-						        LiteralExpression(
-							        SyntaxKind.StringLiteralExpression,
-							        Literal(ProcessorName))))));
+            var processorFieldExpression = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ThisExpression(), IdentifierName(ProcessorName));
+            var assigmentPart = BinaryExpression(
+                SyntaxKind.CoalesceExpression,
+                IdentifierName(ProcessorName),
+                ThrowExpression(
+                    ObjectCreationExpression(
+                            IdentifierName(nameof(ArgumentNullException)))
+                        .AddArgumentListArguments(
+                            Argument(
+                                LiteralExpression(
+                                    SyntaxKind.StringLiteralExpression,
+                                    Literal(ProcessorName))))));
 
-			var ctor = ConstructorDeclaration(clientIdentifier)
+            var ctor = ConstructorDeclaration(clientIdentifier)
                 .AddModifiers(Token(SyntaxKind.PublicKeyword))
                 .AddParameterListParameters(processorCtorParameter)
                 .AddBodyStatements(ExpressionStatement(AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, processorFieldExpression, assigmentPart)));
 
 
-            var memberAccessExpressionSyntax = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, processorFieldExpression, IdentifierName(nameof(IDisposable.Dispose)));
+            var memberAccessExpressionSyntax = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName(ProcessorName), IdentifierName(nameof(IDisposable.Dispose)));
             var invocationExpressionSyntax = InvocationExpression(memberAccessExpressionSyntax);
             var disposeMethod = MethodDeclaration(ParseTypeName("void"), nameof(IDisposable.Dispose))
                 .AddModifiers(Token(SyntaxKind.ProtectedKeyword), Token(SyntaxKind.OverrideKeyword))
@@ -84,11 +97,41 @@ namespace RemoteClient.Roslyn
                 .AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(DisposableBase))), SimpleBaseType(ParseTypeName(nameof(IDisposable))))
                 .AddMembers(processorField, ctor, disposeMethod);
 
+            var trivia = Trivia(
+                DocumentationCommentTrivia(
+                    SyntaxKind.SingleLineDocumentationCommentTrivia,
+                    List(
+                        new XmlNodeSyntax[]
+                        {
+                            XmlText()
+                                .WithTextTokens(
+                                    TokenList(
+                                        XmlTextLiteral(
+                                            TriviaList(
+                                                DocumentationCommentExterior("///")),
+                                            " ",
+                                            " ",
+                                            TriviaList()))),
+                            XmlEmptyElement(XmlName(Identifier("inheritdoc")))
+                                .WithAttributes(
+                                    SingletonList<XmlAttributeSyntax>(
+                                        XmlCrefAttribute(
+                                            NameMemberCref(
+                                                IdentifierName(applyToInterface.Identifier.ValueText))))),
+                            XmlText()
+                                .WithTextTokens(
+                                    TokenList(
+                                        XmlTextNewLine(
+                                            TriviaList(),
+                                            Environment.NewLine,
+                                            Environment.NewLine,
+                                            TriviaList())))
+                        })));
 
             var implementedMembers = (from interfaceMethod in applyToInterface.Members.OfType<MethodDeclarationSyntax>()
-                                      let returnType = GetReturnType(interfaceMethod.ReturnType, context.SemanticModel)
-                                      let methodImplementation = GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType)
-                                      select (MemberDeclarationSyntax)methodImplementation).ToArray();
+                let returnType = GetReturnType(interfaceMethod.ReturnType, context.SemanticModel)
+                let methodImplementation = GetMethodImplementation(interfaceMethod, context.SemanticModel, returnType, trivia)
+                select (MemberDeclarationSyntax) methodImplementation).ToArray();
 
             clientClass = clientClass.AddMembers(implementedMembers);
 
@@ -108,9 +151,9 @@ namespace RemoteClient.Roslyn
                 string interfaceIdentifier = "I" + clientClass.Identifier.ValueText;
                 var methods = clientClass.Members.OfType<MethodDeclarationSyntax>()
                     .Where(m => m.Identifier.ValueText != nameof(IDisposable.Dispose)).Select(m =>
-                    (MemberDeclarationSyntax)MethodDeclaration(m.ReturnType, m.Identifier)
-                        .WithSemicolonToken(ParseToken(";"))
-                        .WithParameterList(m.ParameterList)).ToArray();
+                        (MemberDeclarationSyntax) MethodDeclaration(m.ReturnType, m.Identifier)
+                            .WithSemicolonToken(ParseToken(";"))
+                            .WithParameterList(m.ParameterList)).ToArray();
                 var clientInterface = InterfaceDeclaration(interfaceIdentifier)
                     .AddBaseListTypes(SimpleBaseType(ParseTypeName(nameof(IDisposable))))
                     .AddMembers(
@@ -125,7 +168,7 @@ namespace RemoteClient.Roslyn
         }
 
         [SuppressMessage("ReSharper", "PossibleInvalidCastExceptionInForeachLoop")]
-        private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod, SemanticModel semanticModel, TypeSyntax returnType)
+        private static MethodDeclarationSyntax GetMethodImplementation(MethodDeclarationSyntax interfaceMethod, SemanticModel semanticModel, TypeSyntax returnType, SyntaxTrivia trivia)
         {
             var propertySymbol = semanticModel.GetDeclaredSymbol(interfaceMethod);
             var attribute = propertySymbol?.GetAttributes().FirstOrDefault(a => a.AttributeClass.Name == nameof(WebInvokeAttribute));
@@ -182,7 +225,8 @@ namespace RemoteClient.Roslyn
             return MethodDeclaration(returnType, interfaceMethod.Identifier)
                 .WithParameterList(interfaceMethod.ParameterList)
                 .AddModifiers(Token(SyntaxKind.PublicKeyword))
-                .AddBodyStatements(list.ToArray());
+                .AddBodyStatements(list.ToArray())
+                .WithLeadingTrivia(trivia);
         }
 
         private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken, TypeSyntax interfaceMethodReturnType, IReadOnlyDictionary<string, object> attributeData)
