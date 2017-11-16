@@ -235,23 +235,28 @@ namespace RemoteClient.Roslyn
 
         private static IEnumerable<StatementSyntax> GetInvocationCode(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken, TypeSyntax interfaceMethodReturnType, IReadOnlyDictionary<string, object> attributeData)
         {
-            var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
-                new[]
-                {
-                    Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(attributeData[nameof(WebInvokeAttribute.Method)].ToString()))),
-                    Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(attributeData[nameof(WebInvokeAttribute.UriTemplate)].ToString()))),
-                    Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)), IdentifierName(Enum.GetName(typeof(OperationWebMessageFormat), attributeData[nameof(WebInvokeAttribute.RequestFormat)])))),
-                    Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)), IdentifierName(Enum.GetName(typeof(OperationWebMessageFormat), attributeData[nameof(WebInvokeAttribute.ResponseFormat)])))),
-                }
-            ));
-
-            var descriptorInitializer = EqualsValueClause(InvocationExpression(ObjectCreationExpression(ParseTypeName(nameof(RemoteOperationDescriptor))), remoteOperationDescriptorArguments));
             var descriptorDeclaration = VariableDeclarator("descriptor");
-            var descriptorInitialization = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
-                .AddVariables(descriptorDeclaration.WithInitializer(descriptorInitializer)));
+            var requestDeclaration = VariableDeclarator("request");
+            return new[]
+            {
+                GetDescriptorInitialization(attributeData, descriptorDeclaration),
+                GetRequestInitialization(queryStringDictToken, bodyDictToken, descriptorDeclaration, requestDeclaration),
+                GetReturnExpression(interfaceMethodReturnType, requestDeclaration)
+            };
+        }
 
-            yield return descriptorInitialization;
+        private static StatementSyntax GetReturnExpression(TypeSyntax interfaceMethodReturnType, VariableDeclaratorSyntax requestDeclaration)
+        {
+            var processorCallingMethod = GetCallingMethod(interfaceMethodReturnType);
+            var returnExpression =
+                ReturnStatement(GetCallingExpression(IdentifierName(ProcessorName), processorCallingMethod, requestDeclaration.Identifier));
 
+            return returnExpression;
+        }
+
+        private static StatementSyntax GetRequestInitialization(SyntaxToken queryStringDictToken, SyntaxToken bodyDictToken,
+            VariableDeclaratorSyntax descriptorDeclaration, VariableDeclaratorSyntax requestDeclaration)
+        {
             var remoteRequestArguments = ArgumentList(SeparatedList(
                 new[]
                 {
@@ -261,20 +266,54 @@ namespace RemoteClient.Roslyn
                 }
             ));
 
-            var requestInitializer = EqualsValueClause(InvocationExpression(ObjectCreationExpression(ParseTypeName(nameof(RemoteRequest))), remoteRequestArguments));
-            var requestDeclaration = VariableDeclarator("request");
+            var requestInitializer =
+                EqualsValueClause(InvocationExpression(ObjectCreationExpression(ParseTypeName(nameof(RemoteRequest))), remoteRequestArguments));
+
             var requestInitialization = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
                 .AddVariables(requestDeclaration.WithInitializer(requestInitializer)));
 
-            yield return requestInitialization;
-
-            var processorCallingMethod = GetCallingMethod(interfaceMethodReturnType);
-            var returnExpression = ReturnStatement(GetCallingExpression(IdentifierName(ProcessorName), processorCallingMethod, requestDeclaration.Identifier));
-
-            yield return returnExpression;
+            return requestInitialization;
         }
 
-	    private static ExpressionSyntax GetCallingExpression(SyntaxToken invocationSite, string methodName, params SyntaxToken[] arguments) =>
+        private static StatementSyntax GetDescriptorInitialization(IReadOnlyDictionary<string, object> attributeData, VariableDeclaratorSyntax descriptorDeclaration)
+        {
+            if (!attributeData.ContainsKey(nameof(WebInvokeAttribute.Method)))
+                throw new InvalidOperationException("Cannot generate call without specifying HTTP method");
+            if (!attributeData.TryGetValue(nameof(WebInvokeAttribute.UriTemplate), out var uriTemplate))
+            {
+                uriTemplate = string.Empty;
+            }
+            if (!attributeData.TryGetValue(nameof(WebInvokeAttribute.RequestFormat), out var requestFormat))
+            {
+                requestFormat = default(OperationWebMessageFormat);
+            }
+            if (!attributeData.TryGetValue(nameof(WebInvokeAttribute.ResponseFormat), out var responseFormat))
+            {
+                responseFormat = default(OperationWebMessageFormat);
+            }
+            var remoteOperationDescriptorArguments = ArgumentList(SeparatedList(
+                new[]
+                {
+                    Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(attributeData[nameof(WebInvokeAttribute.Method)].ToString()))),
+                    Argument(LiteralExpression(SyntaxKind.StringLiteralExpression,
+                        Literal(uriTemplate.ToString()))),
+                    Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)),
+                        IdentifierName(Enum.GetName(typeof(OperationWebMessageFormat), requestFormat)))),
+                    Argument(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, ParseTypeName(nameof(OperationWebMessageFormat)),
+                        IdentifierName(Enum.GetName(typeof(OperationWebMessageFormat), responseFormat)))),
+                }
+            ));
+
+            var descriptorInitializer = EqualsValueClause(InvocationExpression(ObjectCreationExpression(ParseTypeName(nameof(RemoteOperationDescriptor))),
+                remoteOperationDescriptorArguments));
+
+            var descriptorInitialization = LocalDeclarationStatement(VariableDeclaration(ParseTypeName("var"))
+                .AddVariables(descriptorDeclaration.WithInitializer(descriptorInitializer)));
+
+            return descriptorInitialization;
+        }
+
+        private static ExpressionSyntax GetCallingExpression(SyntaxToken invocationSite, string methodName, params SyntaxToken[] arguments) =>
 		    GetCallingExpression(IdentifierName(invocationSite), IdentifierName(methodName), arguments);
 		
 		private static ExpressionSyntax GetCallingExpression(ExpressionSyntax invocationSite, SimpleNameSyntax methodName, params SyntaxToken[] arguments) =>
