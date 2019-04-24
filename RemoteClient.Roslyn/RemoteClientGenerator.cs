@@ -10,7 +10,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using RemoteClient.Roslyn.Attributes;
-using Validation;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace RemoteClient.Roslyn
@@ -26,7 +25,6 @@ namespace RemoteClient.Roslyn
 
         public RemoteClientGenerator(AttributeData attributeData)
         {
-            Requires.NotNull(attributeData, nameof(attributeData));
             _inheritServiceInterface = (bool)attributeData.ConstructorArguments[0].Value;
             _generateClientInterface = (bool)attributeData.ConstructorArguments[1].Value;
         }
@@ -46,7 +44,7 @@ namespace RemoteClient.Roslyn
 
         private Task<SyntaxList<MemberDeclarationSyntax>> GenerateAsyncInternal(TransformationContext context)
         {
-            var applyToInterface = (InterfaceDeclarationSyntax) context.ProcessingMember;
+            var applyToInterface = (InterfaceDeclarationSyntax) context.ProcessingNode;
 
             var clientIdentifier = Identifier(TrimInterfaceFirstLetter(applyToInterface.Identifier.ValueText) + "Client");
 
